@@ -1,0 +1,14 @@
+# 结果图
+*.png
+
+# 大型 Seurat 对象
+*.RDS
+
+# 分析中间数据
+*.csv
+
+# 手稿文件
+*.docx
+
+# Claude 配置
+.claude/
