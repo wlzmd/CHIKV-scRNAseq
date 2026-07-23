@@ -1,64 +1,65 @@
-# 读取 md5.txt
-ref <- read.table("md5.txt", stringsAsFactors = FALSE)
+# Read the reference checksums.
+ref <- read.table(here::here("data", "Matrix", "md5.txt"), stringsAsFactors = FALSE)
 colnames(ref) <- c("md5", "file")
 ref$file<-basename(ref$file)
 
-# 列出需要检测的文件（排除 md5.txt 本身）
-files <- list.files("./Matrix", recursive = TRUE, full.names = TRUE)
-# 计算 MD5
+# List files to verify, excluding md5.txt itself.
+files <- list.files(here::here("data", "Matrix"), recursive = TRUE, full.names = TRUE)
+files <- files[basename(files) != "md5.txt"]
+# Calculate MD5 checksums.
 calc <- tools::md5sum(files)
-# 转换为数据框
+# Convert the results to a data frame.
 calc_df <- data.frame(file = basename(names(calc)), md5 = as.character(calc), stringsAsFactors = FALSE)
-# 合并参考和计算结果
+# Join reference and calculated checksums.
 compare <- merge(ref, calc_df, by = "file", all.x = TRUE)
 
-# 增加是否一致的标记
+# Flag matching checksums.
 compare$match <- compare$md5.x == compare$md5.y
 
-# 查看比对结果
+# Inspect the comparison.
 print(compare)
 
 
 
-##读取Seurat对象
-setwd("~/SHIXI/3.基肯孔雅热/01_聚类分群并检测ROE值")
+## Read and construct the Seurat object.
+setwd(here::here("01_initial_clustering_and_roe"))
 library(Seurat)
 library(Matrix)
 library(ggplot2)
 
-## 已有的 files 向量
-files <- sort(list.files("./Matrix", pattern = "\\.tar\\.gz$", full.names = TRUE))
+## Input archive paths.
+files <- sort(list.files(here::here("data", "Matrix"), pattern = "\\.tar\\.gz$", full.names = TRUE))
 
-# 辅助函数：读一个 tar.gz，返回一个 Seurat 对象 ---------------------------
+# Read one tar.gz archive and return a Seurat object.
 read_one_sample <- function(tar_path) {
-  # 临时目录
+  # Create an isolated temporary directory.
   tmpdir <- tempfile(pattern = "one_sample_")
   dir.create(tmpdir)
   
-  # 无论成功还是报错，函数退出时都删除临时目录，释放磁盘空间
+  # Remove temporary data when the function exits.
   on.exit({
     if (dir.exists(tmpdir)) {
       unlink(tmpdir, recursive = TRUE, force = TRUE)
     }
   }, add = TRUE)
   
-  # 解压
+  # Extract the archive.
   untar(tar_path, exdir = tmpdir)
   
-  # 样本名 = tar.gz 文件名去掉后缀
+  # Derive the sample identifier from the archive name.
   sample_id <- basename(tar_path)
   sample_id <- sub("\\.tar\\.gz$", "", sample_id)
   
-  # 10x 矩阵目录：<tmpdir>/<sample_id>/02.count/filter_matrix
+  # Expected 10x matrix directory: <tmpdir>/<sample_id>/02.count/filter_matrix.
   mat_dir <- file.path(tmpdir, sample_id, "02.count", "filter_matrix")
   if (!dir.exists(mat_dir)) {
-    stop("没有找到目录: ", mat_dir)
+    stop("Matrix directory not found: ", mat_dir)
   }
   
-  # 读 10x 格式（你指定 gene.column = 1）
+  # Read the 10x matrix with gene symbols in column 1.
   mat <- Read10X(data.dir = mat_dir, gene.column = 1)
   
-  # 创建 Seurat 对象
+  # Create the Seurat object.
   seu <- CreateSeuratObject(
     counts       = mat,
     project      = sample_id,
@@ -66,24 +67,24 @@ read_one_sample <- function(tar_path) {
     min.features = 0
   )
   
-  # 给细胞名加上样本前缀，避免不同样本细胞名冲突
+  # Prefix cell barcodes with the sample identifier.
   colnames(seu) <- paste(sample_id, colnames(seu), sep = "_")
   
   return(seu)
 }
 
-# 批量读入每个样本，生成 seurat list ----------------------------------------
+# Read all samples into a list of Seurat objects.
 seu_list <- list()
 seu_list <- lapply(files, read_one_sample)
 names(seu_list) <- sub("\\.tar\\.gz$", "", basename(files))
 
-# 合并为一个大的 Seurat 对象 -----------------------------------------------
+# Merge all samples into one Seurat object.
 combined_seurat <- merge(
     x = seu_list[[1]],
     y = seu_list[-1]
   )
 
-# 最终结果
+# Inspect the merged object.
 combined_seurat
 combined_seurat <- NormalizeData(combined_seurat) 
 combined_seurat[["percent.mt"]] <- PercentageFeatureSet(combined_seurat, pattern = "^MT-")
@@ -137,7 +138,7 @@ p <- DimPlot(combined_seurat, label = TRUE, repel = TRUE) +
     legend.title = element_text(size = 8),
   )
 
-# 保存为 PDF，分辨率 600 dpi
+# Save the plot at publication resolution.
 ggsave("DimPlot.png", plot = p, device = "png", dpi = 600, width = 5, height = 4)
 
 
@@ -159,14 +160,14 @@ DotPlot(
 table(combined_seurat$orig.ident)
 combined_seurat$group <- gsub("[0-9]+$", "", combined_seurat$orig.ident)
 
-# 构建排序后的水平
+# Construct ordered factor levels.
 ckgyf_levels <- paste0("CKGYF", sort(seq(1,29,1)))
 con_levels   <- paste0("Con",   sort(seq(1,10,1)))
 
-# 合并成最终因子水平：CKGYF在前，Con在后
+# Place CHIKV samples before controls.
 final_levels <- c(ckgyf_levels, con_levels)
 
-# 重新设置因子顺序
+# Apply the factor order.
 combined_seurat$ids <- factor(combined_seurat$orig.ident, levels = final_levels)
 
 cell_counts <- table(combined_seurat$ids)
@@ -180,8 +181,8 @@ df$condition <- NA_character_
 df$condition[df$sample %in% sick_samples] <- "CKGYF"
 df$condition[df$sample %in% heal_samples] <- "Con"
 
-## 检查有没有没标到组的样本
-df[is.na(df$condition), ]   # 这里如果有行，就说明有样本没分组
+## Check for samples without an assigned condition.
+df[is.na(df$condition), ]
 
 
 df <- df %>%
@@ -192,13 +193,13 @@ df <- df %>%
   mutate(sample = factor(sample, levels = sample)) %>%
   ungroup()
 
-## 4. 画图：横向条形图 + 分面 + 颜色 --------------------------------
+## Plot horizontal bars, facets, and condition colours.
 ggplot(df, aes(x = sample, y = log10_n, fill = condition)) +
   geom_col(width = 0.8) +
   coord_flip() +
   facet_grid(condition ~ ., scales = "free_y", space = "free_y") +
-  scale_fill_manual(values = c(CKGYF = "#E41A1C",   # 红
-                               Con = "#377EB8"   # 蓝
+  scale_fill_manual(values = c(CKGYF = "#E41A1C",
+                               Con = "#377EB8"
                                )) + 
   labs(x = NULL, y = expression(Log[10]("cell number"))) +
   theme_classic() +
@@ -210,8 +211,8 @@ ggplot(df, aes(x = sample, y = log10_n, fill = condition)) +
     axis.text.x = element_text(size = 10)
   )
 
-# 保存 Seurat 对象
-saveRDS(combined_seurat, file = "./combined_seurat.rds")
+# Save the Seurat object.
+saveRDS(combined_seurat, file = here::here("data", "combined_seurat.rds"))
 
 
 Idents(combined_seurat)<-combined_seurat$seurat_clusters
@@ -224,9 +225,9 @@ names(ids) <- levels(combined_seurat)
 combined_seurat <- RenameIdents(combined_seurat, ids)
 factor(ids)
 
-##检测R O/E值和单因素方差分析
-setwd("~/SHIXI/3.基肯孔雅热/01_粗聚类分群并检测ROE值")
-seu_re <- readRDS("~/SHIXI/3.基肯孔雅热/0.0rawdata/combined_seurat.rds")
+## Calculate observed/expected ratios and sample-level abundance summaries.
+setwd(here::here("01_initial_clustering_and_roe"))
+seu_re <- readRDS(here::here("data", "combined_seurat.rds"))
 library(Seurat)
 library(dplyr)
 library(tidyr)
@@ -248,15 +249,15 @@ global_prop <- meta %>%
   dplyr::count(celltype, name = "global_n") %>%
   mutate(global_p = global_n / sum(global_n))
 
-# 每组 observed
+# Observed cell counts by group.
 obs <- meta %>%
   dplyr::count(group, celltype, name = "obs_n")
 
-# 每组总细胞数
+# Total cell counts by group.
 group_total <- meta %>%
   dplyr::count(group, name = "group_n")
 
-# 合并计算 expected 和 R_OE
+# Calculate expected counts and observed/expected ratios.
 roe_df <- obs %>%
   left_join(group_total, by = "group") %>%
   left_join(global_prop, by = "celltype") %>%
@@ -267,7 +268,7 @@ roe_df <- obs %>%
     status = ifelse(R_OE >= 1, "Enrichment", "Depletion")
   )
 
-# 画气泡图（点大小=R_OE，红/蓝=富集/缺失）
+# Plot observed/expected ratios; point size is R_OE and colour denotes enrichment.
 p_roe <- ggplot(roe_df, aes(x = celltype, y = group)) +
   geom_point(aes(size = R_OE, color = status), alpha = 0.95) +
   scale_color_manual(values = c(Depletion = "#2c7fb8", Enrichment = "#d7301f")) +
@@ -284,7 +285,7 @@ p_roe
 
 
 # heatmap
-# 每个样本的 celltype 比例
+# Calculate cell-type proportions for each sample.
 prop_sample <- meta %>%
   dplyr::count(orig.ident, group, celltype, name = "n") %>%
   group_by(orig.ident) %>%

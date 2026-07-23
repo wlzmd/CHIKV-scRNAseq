@@ -1,14 +1,22 @@
-# 结果图
+# Raw and controlled-access data
+data/
+
+# Generated results
+results/
 *.png
+*.pdf
 
-# 大型 Seurat 对象
+# Large Seurat objects and intermediate tables
 *.RDS
-
-# 分析中间数据
+*.rds
 *.csv
 
-# 手稿文件
+# Manuscript files
+*.doc
 *.docx
 
-# Claude 配置
+# Local IDE and assistant configuration
+.Rhistory
+.RData
+.Rproj.user/
 .claude/

@@ -1,4 +1,12 @@
-setwd("~/SHIXI/3.基肯孔雅热/05_B细胞聚类分群")
+setwd(here::here("05_b_cell_subclustering"))
+seu_re <- readRDS(here::here("data", "combined_seurat.rds"))
+
+library(Seurat)
+library(dplyr)
+library(harmony)
+library(ggplot2)
+library(readr)
+library(tidyr)
 
 Idents(seu_re)<-seu_re$seurat_clusters
 Idents(seu_re)
@@ -35,15 +43,15 @@ DimPlot(B_seu ,label = T,reduction = "umap",label.size = 0)
 saveRDS(B_seu,"B_seu.RDS")
 
 
-# 你的基因顺序（跟截图一致）
+# Marker order used in the figure.
 genes <- c("CD79A","MS4A1","MZB1","CD38",
            "IGHD","CD27","NEIL1","MKI67")
 p <- FeaturePlot(
   object = B_seu,
   features = genes,
-  reduction = "umap",          # 你的降维叫 umap 的话
-  ncol = 4,                    # 一行4个  
-  pt.size = 0.1,               # 点大小自己调
+  reduction = "umap",
+  ncol = 4,
+  pt.size = 0.1,
 )
 ggsave("FeaturePlot_Bcell_markers.png", p, width = 13, height = 7, dpi = 300)
 
@@ -99,14 +107,14 @@ deg <- deg %>%
 write.csv(deg,"B_deg.csv")
 
 
-# 兼容 Seurat 版本：avg_log2FC / avg_logFC
+# Support Seurat outputs that use avg_log2FC or avg_logFC.
 fc_col <- dplyr::case_when(
   "avg_log2FC" %in% colnames(deg) ~ "avg_log2FC",
   "avg_logFC"  %in% colnames(deg) ~ "avg_logFC",
   TRUE ~ NA_character_
 )
 
-# 统一字段名
+# Standardize the fold-change field name.
 deg <- deg %>%
   mutate(
     log2FC = .data[[fc_col]],
@@ -120,22 +128,22 @@ deg <- deg %>%
     )
   )
 
-# 火山图标注基因（优先标注最显著的上调 & 下调）
-# 上调前10
+# Label the strongest significant upregulated and downregulated genes.
+# Top upregulated genes.
 up_genes <- deg %>%
-  filter(sig != "NS", log2FC > 0) %>%   # 过滤掉非显著且只保留上调
-  arrange(desc(log2FC))%>%                             # 按 padj 排序
-  slice_head(n = 10) %>%                        # 取前10
+  filter(sig != "NS", log2FC > 0) %>%
+  arrange(desc(log2FC))%>%
+  slice_head(n = 10) %>%
   pull(gene)
 
-# 下调前10
+# Top downregulated genes.
 down_genes <- deg %>%
-  filter(sig != "NS", log2FC < 0) %>%   # 过滤掉非显著且只保留下调
-  arrange(log2FC) %>%                             # 按 padj 排序
-  slice_head(n = 10) %>%                        # 取前10
+  filter(sig != "NS", log2FC < 0) %>%
+  arrange(log2FC) %>%
+  slice_head(n = 10) %>%
   pull(gene)
 
-# 合并成一个向量（可选）
+# Combine labels.
 lab_genes <- c(up_genes, down_genes)
 
 
@@ -162,7 +170,7 @@ ggplot(deg, aes(x = log2FC, y = neglog10padj)) +
     y = expression(-log[10]("adj p-value"))
   )
 
-# 疾病组上调基因用于GO
+# Use CHIKV-upregulated genes for GO enrichment.
 up_genes <- deg %>%
   filter(sig == "Up_in_disease") %>%
   pull(gene) %>%
@@ -189,43 +197,43 @@ library(dplyr)
 library(ggplot2)
 library(stringr)
 
-# go_res <- enrichGO(...)  你已经有了
+# Continue from the previously calculated go_res object.
 
 df <- as.data.frame(go_res) %>%
-  arrange(pvalue) %>%             # 或 arrange(p.adjust)
+  arrange(pvalue) %>%
   slice_head(n = 21)%>%
   mutate(
     neglog10P = -log10(pvalue),
     label = paste0(ID, ": ", Description),
-    label = factor(label, levels = rev(label))  # 控制从上到下排序
+    label = factor(label, levels = rev(label))
   )
 df<-df[-4,]
 
 p <- ggplot(df, aes(x = neglog10P, y = label, fill = neglog10P)) +
   geom_col(width = 0.8) +
-  scale_fill_gradient(low = "#F2D38A", high = "#8B1A1A") +   # 黄->红（接近截图）
+  scale_fill_gradient(low = "#F2D38A", high = "#8B1A1A") +
   labs(x = expression(-log[10](P)), y = "GO biological process terms") +
   theme_classic(base_size = 12) +
   theme(
     legend.position = "none",
     axis.text.y = element_text(size = 10),
     axis.title.y = element_text(size = 12),
-    plot.margin = margin(5.5, 250, 5.5, 5.5)  # 右侧留出空间放长标签
+    plot.margin = margin(5.5, 250, 5.5, 5.5)
   ) +
-  coord_cartesian(clip = "off")  # 允许标签“伸出画布”
+  coord_cartesian(clip = "off")
 
-# 关键：把标签放到条形右侧
+# Place pathway labels to the right of each bar.
 p + geom_text(
   aes(x = neglog10P + max(neglog10P) * 0.02, label = label),
   hjust = 0, size = 3.5, color = "black"
 ) +
-  # 把 y 轴刻度隐藏（因为我们已经用右侧标签写全了）
+  # Hide y-axis labels because pathway labels are drawn directly.
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
 
 
 
 
-##画图
+## Plot group comparisons.
 Idents(B_seu)<-B_seu$seurat_clusters
 B_seu_Plasma <- subset(B_seu ,idents = c("B_Naive"))
 B_seu_Plasma <- ScaleData(B_seu_Plasma, features = genes, verbose = FALSE)
@@ -251,7 +259,7 @@ df_long <- df %>%
     Group = factor(Group, levels = c("Con","CKGYF"))
   )
 
-# 需要比较的两两组合
+# Pairwise comparisons.
 my_comparisons <- list(
   c("Con","CKGYF")
 )
@@ -289,14 +297,14 @@ VlnPlot(B_seu_Plasma,features = genes,
 
 genes <- c("IRF4","CD86","EBI3","DHRS9","KLF10","ZBTB32","CXCR3")
 B_seu_Plasma <- subset(B_seu ,idents = c("B_Memory","B_iMemory"))
-# 你的分组列名可能叫 severity / Group / condition 等，假设叫 "Group"
-# 并且你希望顺序是 Heal, Mild, Seve
+# The grouping column is expected to be named Group.
+# Apply the desired order: Heal, Mild, Seve.
 Idents(B_seu_Plasma) <- "group"
 avg <- AverageExpression(
   B_seu_Plasma,
   features = genes,
   assays = "RNA",
-  slot = "data",      # log-normalized 表达（默认常用）
+  slot = "data",      # Log-normalized expression.
   group.by = "group"
 )$RNA
 library(dplyr)
@@ -309,7 +317,7 @@ df <- as.data.frame(avg) %>%
   mutate(
     group = factor(group, levels = c("Con","CKGYF")),
     Gene  = factor(Gene, levels = genes),
-    # 下面两行是“像示例图那样把范围压到0~0.5”
+    # Match the plotting range used in the manuscript figure.
     Expr_cap = pmin(pmax(Expr, 0), 0.5)
   )
 df2 <- df %>%
@@ -326,7 +334,7 @@ ggplot(df2, aes(x = Gene, y = group, fill = Expr_z)) +
 
 
 
-##浆细胞的转化基因
+## Plasma-cell differentiation genes.
 Idents(B_seu)<-B_seu$seurat_clusters
 genes <- c("PRDM1","XBP1","IRF4")
 DotPlot(B_seu,genes,group.by = "group",cols = c("grey","red"))+
@@ -341,14 +349,14 @@ DotPlot(B_seu,genes,group.by = "group",cols = c("grey","red"))+
 
 
 
-##评估炎症得分：
+## Calculate inflammatory scores.
 
 library(Seurat)
 library(ggplot2)
 
-# ===== 你的炎症基因集 =====
+# Inflammatory gene set.
 inflam_genes_use
-# 建议用 RNA assay 的 normalized data
+# Use normalized data from the RNA assay.
 DefaultAssay(B_seu) <- "RNA"
 B_seu <- AddModuleScore(
   object = B_seu,
@@ -358,7 +366,7 @@ B_seu <- AddModuleScore(
   ctrl = 100
 )
 
-# 为了更直观，重命名一下
+# Rename the score column for clarity.
 B_seu$InflammationScore <- B_seu$Inflammation1
 VlnPlot(
   B_seu,

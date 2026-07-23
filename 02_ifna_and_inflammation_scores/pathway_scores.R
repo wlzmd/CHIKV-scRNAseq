@@ -1,6 +1,6 @@
 rm(list=ls());gc()
-setwd("~/SHIXI/3.基肯孔雅热/02_检测IFN-a和急性炎症反应的通路评分")
-seu_re <- readRDS("~/SHIXI/3.基肯孔雅热/0.0rawdata/combined_seurat.rds")
+setwd(here::here("02_ifna_and_inflammation_scores"))
+seu_re <- readRDS(here::here("data", "combined_seurat.rds"))
 
 library(Seurat)
 library(dplyr)
@@ -8,7 +8,7 @@ library(ggplot2)
 library(msigdbr)
 library(tidyr)
 
-# 获取人类 GO Biological Process
+# Retrieve human GO Biological Process gene sets.
 go_bp <- msigdbr(
   species = "Homo sapiens",
   category = "C5",
@@ -34,8 +34,7 @@ genes_acute_inflam <- go_bp %>%
 length(genes_ifna)
 length(genes_acute_inflam)
 
-# 假设你的 Seurat 对象叫 seu
-# 并且已经 NormalizeData + ScaleData 过
+# The Seurat object is expected to have been normalized and scaled.
 
 seu_re <- AddModuleScore(
   object = seu_re,
@@ -66,7 +65,7 @@ plot_df <- seu_re@meta.data %>%
 
 plot_df <- plot_df %>%
   mutate(
-    pathway = gsub("1$", "", pathway),   # 只去掉结尾的 1
+    pathway = gsub("1$", "", pathway),   # Remove only the trailing "1".
     pathway = recode(
       pathway,
       IFNa_Response = "Response to IFN-α",
