@@ -1,14 +1,16 @@
 rm(list=ls());gc()
-setwd("~/SHIXI/3.基肯孔雅热/04_固有免疫炎症风暴")
-seu_re <- readRDS("~/SHIXI/3.基肯孔雅热/0.0rawdata/combined_seurat.rds")
+setwd(here::here("04_innate_inflammatory_response"))
+seu_re <- readRDS(here::here("data", "combined_seurat.rds"))
 
 library(Seurat)
 library(dplyr)
 library(ggplot2)
 library(msigdbr)
 library(tidyr)
+library(readr)
+library(RColorBrewer)
 
-markerofallsamples <- read_csv("~/SHIXI/3.基肯孔雅热/01_粗聚类分群并检测ROE值/markerofallsamples.csv")
+markerofallsamples <- read_csv(here::here("01_initial_clustering_and_roe", "markerofallsamples.csv"))
 Idents(seu_re)<-seu_re$RNA_snn_res.0.3
 
 ids <- c("NK","Others","Others","Mono_CD14","Others",
@@ -78,7 +80,7 @@ inflam_genes   <- c(
 length(cytokine_genes); head(cytokine_genes)
 length(inflam_genes);   head(inflam_genes)
 
-DefaultAssay(seu_re) <- "RNA"  # 如果你用 SCT 就换成 "SCT"
+DefaultAssay(seu_re) <- "RNA"  # Change to "SCT" when using the SCT assay.
 
 present_genes <- rownames(seu_re)
 
@@ -93,7 +95,7 @@ features_list <- list(
   Inflammatory  = inflam_genes_use
 )
 
-# UCell 默认会生成 meta.data 列名：Cytokine_UCell / Inflammatory_UCell
+# UCell creates the Cytokine_UCell and Inflammatory_UCell metadata columns.
 seu_re <- AddModuleScore_UCell(seu_re, features = features_list)
 
 head(seu_re[[]] %>% dplyr::select(Cytokine_UCell, Inflammatory_UCell))

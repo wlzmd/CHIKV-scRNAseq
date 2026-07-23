@@ -1,14 +1,15 @@
 rm(list=ls());gc()
-setwd("~/SHIXI/3.基肯孔雅热/03_固有免疫细胞")
-seu_re <- readRDS("~/SHIXI/3.基肯孔雅热/0.0rawdata/combined_seurat.rds")
+setwd(here::here("03_innate_immune_cells"))
+seu_re <- readRDS(here::here("data", "combined_seurat.rds"))
 
 library(Seurat)
 library(dplyr)
 library(ggplot2)
 library(msigdbr)
 library(tidyr)
+library(readr)
 
-markerofallsamples <- read_csv("~/SHIXI/3.基肯孔雅热/01_粗聚类分群并检测ROE值/markerofallsamples.csv")
+markerofallsamples <- read_csv(here::here("01_initial_clustering_and_roe", "markerofallsamples.csv"))
 Idents(seu_re)<-seu_re$seurat_clusters
 
 
@@ -36,10 +37,10 @@ my_colors <- c(
   "DC_CD1C" = "#d62728",
   "Mono_NEAT1" = "#9467bd",
   "pDC" = "#8c564b",
-  "Others" = "grey"   # 指定 Others 为灰色
+  "Others" = "grey"
 )
 
-# 绘图
+# Plot the annotated innate immune-cell UMAP.
 DimPlot(seu_re, label = F, cols = my_colors)
 DimPlot(seu_re, label = F, cols = my_colors,split.by = "group")+NoLegend()
 Idents(seu_re)<-factor(Idents(seu_re),
@@ -49,7 +50,7 @@ Idents(seu_re)<-factor(Idents(seu_re),
 
 
 
-# 保存为 PDF，分辨率 600 dpi
+# Save the plot at publication resolution.
 DotPlot(
   subset(seu_re,idents = c("NK","Others"),invert=T),
   features = c(
@@ -68,7 +69,7 @@ DotPlot(
         legend.title = element_text(size = 8)) +
   scale_color_gradient(low = "white", high = "red")
 
-##单因素方差分析观察亚群富集情况
+## Compare innate-cell subset abundance across conditions.
 library(Seurat)
 library(dplyr)
 library(tidyr)
@@ -93,15 +94,15 @@ global_prop <- meta %>%
   dplyr::count(celltype, name = "global_n") %>%
   mutate(global_p = global_n / sum(global_n))
 
-# 每组 observed
+# Observed cell counts by group.
 obs <- meta %>%
   dplyr::count(group, celltype, name = "obs_n")
 
-# 每组总细胞数
+# Total cell counts by group.
 group_total <- meta %>%
   dplyr::count(group, name = "group_n")
 
-# 合并计算 expected 和 R_OE
+# Calculate expected counts and observed/expected ratios.
 roe_df <- obs %>%
   left_join(group_total, by = "group") %>%
   left_join(global_prop, by = "celltype") %>%
@@ -112,7 +113,7 @@ roe_df <- obs %>%
     status = ifelse(R_OE >= 1, "Enrichment", "Depletion")
   )
 
-# 画气泡图（点大小=R_OE，红/蓝=富集/缺失）
+# Plot observed/expected ratios; point size is R_OE and colour denotes enrichment.
 p_roe <- ggplot(roe_df, aes(x = celltype, y = group)) +
   geom_point(aes(size = R_OE, color = status), alpha = 0.95) +
   scale_color_manual(values = c(Depletion = "#2c7fb8", Enrichment = "#d7301f")) +
@@ -129,7 +130,7 @@ p_roe
 
 
 # heatmap
-# 每个样本的 celltype 比例
+# Calculate cell-type proportions for each sample.
 prop_sample <- meta %>%
   dplyr::count(orig.ident, group, celltype, name = "n") %>%
   group_by(orig.ident) %>%
@@ -197,13 +198,13 @@ ggplot(plot_df, aes(x = celltype, y = mean_prop, fill = group)) +
   scale_fill_manual(values = c("Con" = "skyblue", "CKGYF" = "orange"))
 
 
-#DEGs和GO富集
+# Differential expression and GO enrichment.
 library(Seurat)
 library(dplyr)
 library(ggplot2)
 
 library(clusterProfiler)
-library(org.Hs.eg.db)   # 人类
+library(org.Hs.eg.db)
 library(enrichplot)
 
 Idents(seu_re)<-seu_re$seurat_clusters
@@ -222,16 +223,16 @@ de_go_volcano <- function(
     group_col = "group",
     disease_group = "CKGYF",
     control_group = "Con",
-    assay = NULL,                 # 默认用 DefaultAssay(seu)
+    assay = NULL,                 # Use the object's default assay.
     slot = "data",                # "data" or "counts"
     test.use = "wilcox",
     min.pct = 0.1,
     logfc.threshold = 0,
     padj_cutoff = 0.05,
-    lfc_cutoff = 0.58,            # 用于标红/富集基因筛选
-    top_n_label = 10,             # 火山图标注多少个基因
+    lfc_cutoff = 0.58,            # Threshold for highlighting and enrichment.
+    top_n_label = 10,             # Number of genes labelled on the volcano plot.
     orgdb = org.Hs.eg.db,
-    keytype = "SYMBOL",           # 你的 rownames 是 gene symbol 的话用 SYMBOL
+    keytype = "SYMBOL",           # Row names are expected to be gene symbols.
     ont = "BP",
     go_show_n = 20
 ) {
@@ -240,7 +241,7 @@ de_go_volcano <- function(
   seu_ct <- subset(seu, subset = celltype == celltype_value)
   Idents(seu_ct) <- seu_ct@meta.data[[group_col]]
   
-  # 差异基因：疾病组 vs 对照组
+  # Differential expression: CHIKV versus control.
   deg <- FindMarkers(
     seu_ct,
     ident.1 = disease_group,
@@ -255,15 +256,15 @@ de_go_volcano <- function(
     tibble::rownames_to_column("gene") %>%
     as_tibble()
   
-  # 兼容 Seurat 版本：avg_log2FC / avg_logFC
+  # Support Seurat outputs that use avg_log2FC or avg_logFC.
   fc_col <- dplyr::case_when(
     "avg_log2FC" %in% colnames(deg) ~ "avg_log2FC",
     "avg_logFC"  %in% colnames(deg) ~ "avg_logFC",
     TRUE ~ NA_character_
   )
-  if (is.na(fc_col)) stop("找不到 avg_log2FC 或 avg_logFC 列，请检查 FindMarkers 输出。")
+  if (is.na(fc_col)) stop("Neither avg_log2FC nor avg_logFC was found in the FindMarkers output.")
   
-  # 统一字段名
+  # Standardize the fold-change field name.
   deg <- deg %>%
     mutate(
       log2FC = .data[[fc_col]],
@@ -277,22 +278,22 @@ de_go_volcano <- function(
       )
     )
   
-  # 火山图标注基因（优先标注最显著的上调 & 下调）
-  # 上调前10
+  # Label the strongest significant upregulated and downregulated genes.
+  # Top upregulated genes.
   up_genes <- deg %>%
-    filter(sig != "NS", log2FC > 0) %>%   # 过滤掉非显著且只保留上调
-    arrange(desc(log2FC)) %>%                             # 按 padj 排序
-    slice_head(n = top_n_label) %>%                        # 取前10
+    filter(sig != "NS", log2FC > 0) %>%
+    arrange(desc(log2FC)) %>%
+    slice_head(n = top_n_label) %>%
     pull(gene)
   
-  # 下调前10
+  # Top downregulated genes.
   down_genes <- deg %>%
-    filter(sig != "NS", log2FC < 0) %>%   # 过滤掉非显著且只保留下调
-    arrange(log2FC) %>%                             # 按 padj 排序
-    slice_head(n = top_n_label) %>%                        # 取前10
+    filter(sig != "NS", log2FC < 0) %>%
+    arrange(log2FC) %>%
+    slice_head(n = top_n_label) %>%
     pull(gene)
   
-  # 合并成一个向量（可选）
+  # Combine labels.
   lab_genes <- c(up_genes, down_genes)
   
   
@@ -319,7 +320,7 @@ de_go_volcano <- function(
       y = expression(-log[10]("adj p-value"))
     )
   
-  # 疾病组上调基因用于GO
+  # Use CHIKV-upregulated genes for GO enrichment.
   up_genes <- deg %>%
     filter(sig == "Up_in_disease") %>%
     pull(gene) %>%
@@ -351,13 +352,13 @@ de_go_volcano <- function(
       if (!is.null(go_res) && nrow(as.data.frame(go_res)) > 0) {
         p_go <- barplot(go_res, showCategory = go_show_n, title = paste0(celltype_value, " Up genes: GO-", ont))
       } else {
-        warning("GO富集没有显著条目（可能上调基因太少或映射不足）。")
+        warning("No significant GO terms were found; there may be too few upregulated or mapped genes.")
       }
     } else {
-      warning("ENTREZID 映射后基因数 < 10，跳过 GO。")
+      warning("Fewer than 10 genes mapped to ENTREZID; skipping GO enrichment.")
     }
   } else {
-    warning("疾病组上调基因数 < 10，跳过 GO。")
+    warning("Fewer than 10 genes were upregulated in CHIKV; skipping GO enrichment.")
   }
   
   list(
@@ -378,7 +379,7 @@ res_mono <- de_go_volcano(
   group_col = "group",
   disease_group = "CKGYF",
   control_group = "Con",
-  assay = "RNA",     # 如果你用的是 RNA；若 integrated 就改成 "integrated"
+  assay = "RNA",     # Change to "integrated" when appropriate.
   slot = "data",
   lfc_cutoff = 0.58,
   padj_cutoff = 0.05,
@@ -386,11 +387,11 @@ res_mono <- de_go_volcano(
   go_show_n = 20
 )
 
-# 展示
+# Display results.
 res_mono$volcano_plot
 res_mono$go_plot
 
-# 导出差异表/GO表
+# Export differential-expression and GO tables.
 head(res_mono$deg_table)
 head(res_mono$go_table)
 
@@ -402,7 +403,7 @@ res_nk <- de_go_volcano(
   group_col = "group",
   disease_group = "CKGYF",
   control_group = "Con",
-  assay = "RNA",     # 如果你用的是 RNA；若 integrated 就改成 "integrated"
+  assay = "RNA",     # Change to "integrated" when appropriate.
   slot = "data",
   lfc_cutoff = 0.58,
   padj_cutoff = 0.05,
@@ -410,7 +411,7 @@ res_nk <- de_go_volcano(
   go_show_n = 15
 )
 
-# 展示
+# Display results.
 res_nk$volcano_plot
 res_nk$go_plot
 
@@ -420,14 +421,14 @@ write.csv(res_mono$go_object,"res_mono_gobp.csv")
 write.csv(res_nk$deg_table,"res_nk_deg.csv")
 write.csv(res_nk$go_object,"res_nk_gobp.csv")
 
-##凋亡迁移能力
+## Apoptosis and migration scores.
 library(Seurat)
 library(dplyr)
 library(ggplot2)
 library(msigdbr)
 library(tidyr)
 
-# 获取人类 GO Biological Process
+# Retrieve human GO Biological Process gene sets.
 go_bp <- msigdbr(
   species = "Homo sapiens",
   category = "C5",
@@ -473,7 +474,7 @@ plot_df <- seu_re@meta.data %>%
 
 plot_df <- plot_df %>%
   mutate(
-    pathway = gsub("1$", "", pathway),   # 只去掉结尾的 1
+    pathway = gsub("1$", "", pathway),   # Remove only the trailing "1".
     pathway = recode(
       pathway,
       Apoptosis = "Apoptosis",
@@ -511,8 +512,8 @@ ggplot(plot_df, aes(x = seurat_clusters, y = score, fill = group)) +
     CKGYF   = "#E38D4F"
   ))+NoLegend()
 
-##重新画一个热图
-res_mono_deg <- read_csv("~/SHIXI/3.基肯孔雅热/03_固有免疫细胞/res_mono_deg.csv")
+## Redraw the monocyte heat map.
+res_mono_deg <- read_csv(here::here("03_innate_immune_cells", "res_mono_deg.csv"))
 library(readr)
 library(dplyr)
 library(ggplot2)
@@ -568,7 +569,7 @@ ggplot(res_mono_deg, aes(x = log2FC,y = neglog10padj)) +
 
 
 res_nk_gobp <- res_nk_gobp %>%
-  arrange(p.adjust) %>%   # 按 p 值从小到大
+  arrange(p.adjust) %>%
   mutate(
     Description = factor(Description, levels = rev(Description))
   )
@@ -580,8 +581,8 @@ ggplot(res_nk_gobp[c(1,4,7,13,14,16,19,20),],
   geom_col(width = 0.7) +
   
   scale_fill_gradient(
-    low = "#2166AC",   # 蓝色（不显著）
-    high = "#B2182B"   # 红色（显著）
+    low = "#2166AC",
+    high = "#B2182B"
   ) +
   theme_classic() +
   theme(axis.text.y = element_text(color = "black",size = 12))+

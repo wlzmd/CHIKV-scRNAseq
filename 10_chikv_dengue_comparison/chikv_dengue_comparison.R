@@ -1,40 +1,39 @@
-setwd("~/SHIXI/2.基肯孔雅热/10_和登革热相似性分析")
-setwd("~/SHIXI/2.基肯孔雅热/10_和登革热相似性分析/SDp_登革热")
+setwd(here::here("data", "dengue"))
 list.files("./")
 
-# 获取所有文件
+# List downloaded matrix files.
 files <- list.files("./", full.names = TRUE)
 
-# 提取样本前缀（去掉 barcodes/features/matrix 部分）
+# Derive sample prefixes by removing matrix-file suffixes.
 prefixes <- unique(gsub("_(barcodes|features|matrix).*", "", basename(files)))
 
-# 遍历每个样本前缀
+# Organize files for each sample.
 for (pref in prefixes) {
-  # 创建文件夹
+  # Create a sample directory.
   dir.create(pref, showWarnings = FALSE)
   
-  # 找到该前缀对应的文件
+  # Select files matching the sample prefix.
   sample_files <- files[grepl(pref, files)]
   
-  # 遍历并复制/移动到文件夹里
+  # Move each matrix file into the sample directory.
   for (f in sample_files) {
-    # 去掉前缀，只保留后缀部分
+    # Remove the sample prefix from the destination file name.
     new_name <- sub(paste0(pref, "_"), "", basename(f))
     
-    # 构建目标路径
+    # Build the destination path.
     target <- file.path(pref, new_name)
     
-    # 移动文件（如果想复制用 file.copy）
+    # Move the file. Use file.copy when the original should be retained.
     file.rename(f, target)
   }
 }
 
 library(Seurat)
 
-# 列出所有样本文件夹
+# List sample directories.
 dirs <- list.files("./", full.names = TRUE)
 
-# 逐个读取文件夹并创建 Seurat 对象
+# Read each matrix directory and create a Seurat object.
 seurat.list <- list()
 for (d in dirs) {
   sample_id <- basename(d)
@@ -49,36 +48,36 @@ for (d in dirs) {
   seurat.list[[sample_id]] <- seurat.obj
 }
 
-# 合并所有样本为一个 Seurat 对象
+# Merge all DENV samples.
 combined <- merge(
   seurat.list[[1]], 
   y = seurat.list[-1], 
   add.cell.ids = names(seurat.list), 
   project = "GSE220969"
 )
-combined_seurat <- readRDS("~/SHIXI/2.基肯孔雅热/0.0rawdata/combined_seurat.rds")
+combined_seurat <- readRDS(here::here("data", "combined_seurat.rds"))
 chikv<-subset(combined_seurat,subset = group == "CKGYF")
 
-setwd("~/SHIXI/2.基肯孔雅热/10_和登革热相似性分析")
+setwd(here::here("10_chikv_dengue_comparison"))
 library(Seurat)
 library(harmony)
 
-# Step 1: 合并两个 Seurat 对象
+# Step 1: Merge the CHIKV and DENV Seurat objects.
 merged <- merge(combined, y = chikv, add.cell.ids = c("combined", "chikv"), project = "JointAnalysis")
 
-# Step 2: 标准预处理
+# Step 2: Apply standard preprocessing.
 merged <- NormalizeData(merged)
 merged <- FindVariableFeatures(merged, selection.method = "vst", nfeatures = 2000)
 merged <- ScaleData(merged)
 
-# Step 3: PCA 降维
+# Step 3: Run PCA.
 merged <- RunPCA(merged, npcs = 30, verbose = FALSE)
 
-# Step 4: Harmony 批次效应校正
-# 假设你有一个元数据列，比如 "orig.ident" 或 "group" 表示批次/样本来源
+# Step 4: Correct batch effects with Harmony.
+# orig.ident is expected to identify sample or batch.
 merged <- RunHarmony(merged, group.by.vars = "orig.ident")
 
-# Step 5: 用 Harmony 的结果做下游分析
+# Step 5: Use Harmony embeddings for downstream analysis.
 merged <- RunUMAP(merged, reduction = "harmony", dims = 1:30)
 merged <- FindNeighbors(merged, reduction = "harmony", dims = 1:30)
 merged <- FindClusters(merged, resolution = 0.4)
@@ -96,7 +95,7 @@ Idents(merged)<-factor(Idents(merged),levels = c("NK","T","Mono","DC","pDC","B",
                  "Platelets","Na"))
 
 merged_sub<-subset(merged,idents="Na",invert=T)
-# 给 merged_sub 添加分组信息
+# Add condition labels to merged_sub.
 merged_sub$group <- ifelse(grepl("^GSM", merged_sub$orig.ident), 
                            "DENV", 
                            "CKGYF")
@@ -117,13 +116,13 @@ genes <- c(
 
 DotPlot(merged_sub, features = genes, group.by = "group") +
   coord_flip()+
-  scale_color_gradient(low = "grey80", high = "orange") +   # 点的颜色渐变
-  scale_size(range = c(2, 8)) +                             # 点大小范围
-  theme_minimal(base_size = 12) +                           # 简洁主题
+  scale_color_gradient(low = "grey80", high = "orange") +
+  scale_size(range = c(2, 8)) +
+  theme_minimal(base_size = 12) +
   theme(
-    axis.text.x = element_text(angle = 0, hjust = 0.5,colour = "black",size = 12),      # 横坐标组名倾斜
-    axis.text.y = element_text(size = 12,colour = "black"),   # 纵坐标基因加粗
-    panel.grid = element_blank(),                           # 去掉网格线
+    axis.text.x = element_text(angle = 0, hjust = 0.5,colour = "black",size = 12),
+    axis.text.y = element_text(size = 12,colour = "black"),
+    panel.grid = element_blank(),
     axis.title.x = element_text(size = 0),
     axis.title.y = element_text(size = 0),
     panel.border = element_rect(color = "black", fill = NA, size = 0.5)
@@ -167,11 +166,11 @@ ggplot(df_sample_ct, aes(x=seurat_clusters, y=Score, fill=Condition)) +
   facet_wrap(~ScoreType, ncol=1, scales="free_y") +
   theme_classic() +
   labs(x=NULL, y=" ")+
-  labs(title = NULL) + # 去掉标题 
-  theme( axis.text.x = element_text(angle = 90, hjust = 1, color = "black", size = 12), # 横坐标文字旋转90°，黑色，字体放大 
-         axis.text.y = element_text(color = "black", size = 12), # 纵坐标文字黑色，字体放大
+  labs(title = NULL) +
+  theme( axis.text.x = element_text(angle = 90, hjust = 1, color = "black", size = 12),
+         axis.text.y = element_text(color = "black", size = 12),
          strip.text = element_blank(),
-         panel.spacing = unit(1.3, "cm") # 调整分面之间的间距，数值越大间距越大
+         panel.spacing = unit(1.3, "cm")
   )
 
 ggplot(df_sample_ct, aes(x=seurat_clusters, y=Score, fill=Condition)) +
@@ -186,9 +185,9 @@ ggplot(df_sample_ct, aes(x=seurat_clusters, y=Score, fill=Condition)) +
 
   stat_compare_means(
     aes(group = Condition),
-    method = "t.test",   # 或 "t.test"
-    label = "p.signif",       # 显示星号
-    hide.ns = T ,          # 不显示 ns
+    method = "t.test",
+    label = "p.signif",
+    hide.ns = TRUE,
     size = 5  
   ) +
   
@@ -224,7 +223,7 @@ de <- de %>%
   mutate(p_val_adj = ifelse(is.na(p_val_adj), 1, p_val_adj)) %>%
   arrange(p_val_adj, desc(avg_log2FC))
 
-# 过滤显著差异基因（阈值你可改）
+# Filter significant differentially expressed genes.
 de_sig <- de %>% filter(p_val_adj < 0.05)
 de_sig <- subset(de_sig, pct.1 > 0.05 & pct.2 > 0.05)
 
@@ -238,8 +237,8 @@ top_up <- de_sig %>% arrange(desc(avg_log2FC)) %>% slice_head(n = 10) %>% pull(g
 top_dn <- de_sig %>% arrange(avg_log2FC)       %>% slice_head(n = 10) %>% pull(gene)
 top_genes <- unique(c(top_up, top_dn))
 
-# 以“样本”为单位聚合表达：列=样本（orig.idents）
-# 推荐用 slot="data"（log-normalized）
+# Aggregate expression by biological sample (orig.idents).
+# Use log-normalized expression from slot="data".
 avg_expr_list <- AverageExpression(
   Mono,
   assays = DefaultAssay(Mono),
@@ -251,18 +250,18 @@ avg_expr_list <- AverageExpression(
 
 avg_mat <- avg_expr_list[[DefaultAssay(Mono)]]  # genes x samples
 
-# 行标准化（更适合热图展示）
+# Scale each gene for heat-map visualization.
 avg_mat_z <- t(scale(t(as.matrix(avg_mat))))
 avg_mat_z[is.na(avg_mat_z)] <- 0
 
-# 样本注释（每个样本对应的 group；若一个样本里有多组会报错/不合理）
+# Create one condition annotation per sample.
 sample_anno <- Mono@meta.data %>%
   distinct(orig.ident, group) %>%
   group_by(orig.ident) 
-# 对齐列名
+# Align annotation and expression-matrix columns.
 sample_anno <- sample_anno[colnames(avg_mat_z), , drop = FALSE]
 
-# 热图：横坐标=样本名（orig.idents）
+# Plot a heat map with sample identifiers on the x-axis.
 pheatmap(
   mat = avg_mat_z,
   annotation_col = sample_anno,
@@ -275,7 +274,7 @@ pheatmap(
 
 
 
-## 如果你还想按“上/下调”分块显示（可选）
+## Optional split by upregulated and downregulated genes.
 gene_dir <- data.frame(
   direction = ifelse(rownames(avg_mat_z) %in% top_up, "Up", "Down"),
   row.names = rownames(avg_mat_z)
@@ -328,7 +327,7 @@ ego_sub<-ego[c("GO:0048002",
 
 
 ego_sub <- ego_sub %>%
-  arrange(p.adjust) %>%   # 按 p 值从小到大
+  arrange(p.adjust) %>%
   mutate(
     Description = factor(Description, levels = rev(Description))
   )
@@ -343,8 +342,8 @@ ggplot(ego_sub,
   geom_col(width = 0.7) +
 
   scale_fill_gradient(
-    low = "#2166AC",   # 蓝色（不显著）
-    high = "#B2182B"   # 红色（显著）
+    low = "#2166AC",
+    high = "#B2182B"
   ) +
   theme_classic() +
   theme(axis.text.y = element_text(color = "black",size = 12))+
@@ -400,12 +399,12 @@ inflam_genes   <- c(
   "TNFSF13", "TNFSF13B", "TNFSF14", "TNFSF15", "TNF", "TYROBP"
 )
 
-# 保存为只有一列的 CSV
+# Save the inflammatory gene set as a one-column CSV.
 write.csv(
-  data.frame(gene = inflam_genes),   # 转成一列的数据框
-  file = "inflam_genes.csv",         # 输出文件名
-  row.names = FALSE,                 # 不要行名
-  quote = FALSE                      # 不加引号（可选）
+  data.frame(gene = inflam_genes),
+  file = "inflam_genes.csv",
+  row.names = FALSE,
+  quote = FALSE
 )
 
 
@@ -466,15 +465,14 @@ p <- VlnPlot(
   split.by = "group",cols = c("turquoise","orange")
 ) + NoLegend()
 
-# 2) 取出作图同源数据：分数 + 细胞类型(Identity) + group
+# 2) Extract plotting data: score, cell identity, and condition.
 df <- FetchData(combined_seurat, vars = c("InflamScore1", "group"))
 df$Identity <- Idents(combined_seurat)
 
-# 可选：去掉缺失
+# Remove missing values.
 df <- df %>% filter(!is.na(group), !is.na(InflamScore1))
 
-# 3) 把检验结果加到原图上：
-# group.by = "Identity" 代表“按细胞类型分层，在每个层里比较group”
+# 3) Add within-cell-type condition comparisons to the plot.
 p + stat_compare_means(
   data = df,
   aes(x = Identity, y = InflamScore1, group = group),
@@ -494,7 +492,7 @@ merged_Mono <- merge(Mono, y = combined_seurat_monocon,
                      project = "JointAnalysis")
 
 table(merged_Mono$group)
-# Step 2: 标准预处理
+# Apply standard preprocessing.
 merged_Mono <- NormalizeData(merged_Mono)
 merged_Mono <- FindVariableFeatures(merged_Mono, selection.method = "vst", nfeatures = 2000)
 merged_Mono <- ScaleData(merged_Mono)

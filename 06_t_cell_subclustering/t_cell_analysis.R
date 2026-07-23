@@ -1,6 +1,12 @@
-setwd("~/SHIXI/3.基肯孔雅热/06_T细胞的聚类分群")
+setwd(here::here("06_t_cell_subclustering"))
+seu_re <- readRDS(here::here("data", "combined_seurat.rds"))
 
-
+library(Seurat)
+library(dplyr)
+library(harmony)
+library(ggplot2)
+library(readr)
+library(tidyr)
 
 Idents(seu_re)<-seu_re$seurat_clusters
 Idents(seu_re)
@@ -127,7 +133,7 @@ library(tidyr)
 meta <- Tseu@meta.data %>%
   dplyr::select(orig.ident, group, seurat_clusters)
 
-# 每个样本内：各亚群细胞数/总细胞数 = percentage
+# Calculate each subset as a percentage of T cells within each sample.
 df_prop <- meta %>%
   group_by(orig.ident, group, seurat_clusters) %>%
   summarise(n = n(), .groups = "drop") %>%
@@ -149,7 +155,7 @@ p <- ggplot(df_prop, aes(x = group, y = percentage, fill = group)) +
     axis.text.x = element_text(angle = 45, hjust = 1)
   )
 
-ggsave("T细胞比例变化.png", plot = p, width = 10, height = 6, dpi = 300)
+ggsave("t_cell_subset_proportions.png", plot = p, width = 10, height = 6, dpi = 300)
 
 
 
@@ -168,7 +174,7 @@ celltypes_use <- c("CD4_Effector-GNLY",
                    "NKT_CD56",
                    "NKT_CD160")
 
-# 假设你的细胞类型注释在 Tseu$celltype
+# Cell-type annotations are expected in Tseu$celltype.
 Tsub <- subset(Tseu, subset = seurat_clusters %in% celltypes_use)
 
 library(clusterProfiler)
@@ -215,7 +221,7 @@ df$celltype <- factor(df$seurat_clusters, levels = celltypes_use)
 df$Signature <- recode(df$Signature,
                        Cytotoxicity1 = "Cytotoxicity",
                        Exhaustion1 = "Exhaustion")
-# 你图里 Condition 的顺序
+# Condition order used in the figure.
 df$group <- factor(df$group , levels = c("Con","CKGYF"))
 
 p <- ggplot(df, aes(x = celltype, y = Score, fill = group)) +
@@ -225,14 +231,14 @@ p <- ggplot(df, aes(x = celltype, y = Score, fill = group)) +
   labs(x = NULL, y = NULL)
 
 p + stat_compare_means(comparisons = my_comp, method = "wilcox.test", label = "p.format", size = 3) +
-  labs(title = NULL) + # 去掉标题 
-  theme( axis.text.x = element_text(angle = 90, hjust = 1, color = "black", size = 10), # 横坐标文字旋转90°，黑色，字体放大 
-         axis.text.y = element_text(color = "black", size = 10), # 纵坐标文字黑色，字体放大
+  labs(title = NULL) +
+  theme( axis.text.x = element_text(angle = 90, hjust = 1, color = "black", size = 10),
+         axis.text.y = element_text(color = "black", size = 10),
          strip.text = element_blank()
          )
 
 ##DotPlot
-celltype_use <- "NKT_CD56"     # 改成你要看的细胞类型
+celltype_use <- "NKT_CD56"
 Tsub <- subset(Tseu, ident = celltype_use)
 colnames(Tseu@meta.data)
 unique(Tseu$seurat_clusters)
@@ -250,7 +256,7 @@ p <- DotPlot(
   dot.scale = 8
 ) +
   RotatedAxis() +
-  scale_color_gradientn(colors = c("navy","white","gold"))  # 不想手动配色就删掉这行
+  scale_color_gradientn(colors = c("navy","white","gold"))
 
 p
 
@@ -273,14 +279,14 @@ deg <- deg %>%
 write.csv(deg,"T_deg.csv")
 
 
-# 兼容 Seurat 版本：avg_log2FC / avg_logFC
+# Support Seurat outputs that use avg_log2FC or avg_logFC.
 fc_col <- dplyr::case_when(
   "avg_log2FC" %in% colnames(deg) ~ "avg_log2FC",
   "avg_logFC"  %in% colnames(deg) ~ "avg_logFC",
   TRUE ~ NA_character_
 )
 
-# 统一字段名
+# Standardize the fold-change field name.
 deg <- deg %>%
   mutate(
     log2FC = .data[[fc_col]],
@@ -294,22 +300,22 @@ deg <- deg %>%
     )
   )
 
-# 火山图标注基因（优先标注最显著的上调 & 下调）
-# 上调前10
+# Label the strongest significant upregulated and downregulated genes.
+# Top upregulated genes.
 up_genes <- deg %>%
-  filter(sig != "NS", log2FC > 0) %>%   # 过滤掉非显著且只保留上调
-  arrange(desc(log2FC))%>%                             # 按 padj 排序
-  slice_head(n = 10) %>%                        # 取前10
+  filter(sig != "NS", log2FC > 0) %>%
+  arrange(desc(log2FC))%>%
+  slice_head(n = 10) %>%
   pull(gene)
 
-# 下调前10
+# Top downregulated genes.
 down_genes <- deg %>%
-  filter(sig != "NS", log2FC < 0) %>%   # 过滤掉非显著且只保留下调
-  arrange(log2FC) %>%                             # 按 padj 排序
-  slice_head(n = 10) %>%                        # 取前10
+  filter(sig != "NS", log2FC < 0) %>%
+  arrange(log2FC) %>%
+  slice_head(n = 10) %>%
   pull(gene)
 
-# 合并成一个向量（可选）
+# Combine labels.
 lab_genes <- c(up_genes, down_genes)
 
 
@@ -337,7 +343,7 @@ ggplot(deg, aes(x = log2FC, y = neglog10padj)) +
     y = expression(-log[10]("adj p-value"))
   )
 
-# 疾病组上调基因用于GO
+# Use CHIKV-upregulated genes for GO enrichment.
 up_genes <- deg %>%
   filter(sig == "Up_in_disease") %>%
   pull(gene) %>%
@@ -365,37 +371,37 @@ library(dplyr)
 library(ggplot2)
 library(stringr)
 
-# go_res <- enrichGO(...)  你已经有了
+# Continue from the previously calculated go_res object.
 
 df <- as.data.frame(go_res) %>%
-  arrange(pvalue) %>% # 或 arrange(p.adjust)
+  arrange(pvalue) %>%
   mutate(
     neglog10P = -log10(pvalue),
     label = paste0(ID, ": ", Description),
-    label = factor(label, levels = rev(label))  # 控制从上到下排序
+    label = factor(label, levels = rev(label))
   )
 
 df<-df[c("GO:0034341","GO:0034340","GO:0035456","GO:0035455","GO:0001819",
          "GO:0001906","GO:1903037","GO:0061640","GO:0051607","GO:0001819"),] 
 p <- ggplot(df, aes(x = neglog10P, y = label, fill = neglog10P)) +
   geom_col(width = 0.8) +
-  scale_fill_gradient(low = "#F2D38A", high = "#8B1A1A") +   # 黄->红（接近截图）
+  scale_fill_gradient(low = "#F2D38A", high = "#8B1A1A") +
   labs(x = expression(-log[10](P)), y = "GO biological process terms") +
   theme_classic(base_size = 12) +
   theme(
     legend.position = "none",
     axis.text.y = element_text(size = 10),
     axis.title.y = element_text(size = 12),
-    plot.margin = margin(5.5, 250, 5.5, 5.5)  # 右侧留出空间放长标签
+    plot.margin = margin(5.5, 250, 5.5, 5.5)
   ) +
-  coord_cartesian(clip = "off")  # 允许标签“伸出画布”
+  coord_cartesian(clip = "off")
 
-# 关键：把标签放到条形右侧
+# Place pathway labels to the right of each bar.
 p + geom_text(
   aes(x = neglog10P + max(neglog10P) * 0.02, label = label),
   hjust = 0, size = 3.5, color = "black"
 ) +
-  # 把 y 轴刻度隐藏（因为我们已经用右侧标签写全了）
+  # Hide y-axis labels because pathway labels are drawn directly.
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
 
 
@@ -410,15 +416,15 @@ library(ggpubr)
 library(clusterProfiler)
 library(org.Hs.eg.db)
 
-# 迁移：leukocyte migration (GO:0050900)
+# Migration: leukocyte migration (GO:0050900).
 go_mig <- AnnotationDbi::select(org.Hs.eg.db, keys="GO:0050900", keytype="GOALL", columns="SYMBOL")
 mig_genes <- unique(na.omit(go_mig$SYMBOL))
 
-# 凋亡：apoptotic process (GO:0006915)
+# Apoptosis: apoptotic process (GO:0006915).
 go_apo <- AnnotationDbi::select(org.Hs.eg.db, keys="GO:0006915", keytype="GOALL", columns="SYMBOL")
 apo_genes <- unique(na.omit(go_apo$SYMBOL))
 
-# 只保留在对象里存在的基因
+# Retain genes present in the Seurat object.
 mig_genes <- intersect(mig_genes, rownames(Tseu))
 apo_genes <- intersect(apo_genes, rownames(Tseu))
 
@@ -446,11 +452,11 @@ ggplot(df_sample, aes(x=Condition, y=Score, fill=Condition)) +
   facet_wrap(~ScoreType, ncol=1, scales="free_y") +
   theme_classic() +
   labs(x=NULL, y=" ")+
-  labs(title = NULL) + # 去掉标题 
-  theme( axis.text.x = element_text(angle = 90, hjust = 1, color = "black", size = 12), # 横坐标文字旋转90°，黑色，字体放大 
-         axis.text.y = element_text(color = "black", size = 12), # 纵坐标文字黑色，字体放大
+  labs(title = NULL) +
+  theme( axis.text.x = element_text(angle = 90, hjust = 1, color = "black", size = 12),
+         axis.text.y = element_text(color = "black", size = 12),
          strip.text = element_blank(),
-         panel.spacing = unit(1, "cm") # 调整分面之间的间距，数值越大间距越大
+         panel.spacing = unit(1, "cm")
   )
 
 
@@ -495,16 +501,16 @@ ggplot(df_sample_ct, aes(x=seurat_clusters, y=Score, fill=Condition)) +
   facet_wrap(~ScoreType, ncol=1, scales="free_y") +
   theme_classic() +
   labs(x=NULL, y=" ")+
-  labs(title = NULL) + # 去掉标题 
-  theme( axis.text.x = element_text(angle = 90, hjust = 1, color = "black", size = 12), # 横坐标文字旋转90°，黑色，字体放大 
-         axis.text.y = element_text(color = "black", size = 12), # 纵坐标文字黑色，字体放大
+  labs(title = NULL) +
+  theme( axis.text.x = element_text(angle = 90, hjust = 1, color = "black", size = 12),
+         axis.text.y = element_text(color = "black", size = 12),
          strip.text = element_blank(),
-         panel.spacing = unit(1.3, "cm") # 调整分面之间的间距，数值越大间距越大
+         panel.spacing = unit(1.3, "cm")
   )
 
 
 ##NKT_CD56
-CD8Marker <- read_csv("~/SHIXI/3.基肯孔雅热/06_T细胞的聚类分群/CD8Marker.csv")
+CD8Marker <- read_csv(here::here("06_t_cell_subclustering", "CD8Marker.csv"))
 markersgenes <-filter(CD8Marker,cluster == "NKT_CD56"& pct.1 > 0.20 )$gene
 
 library(clusterProfiler)
@@ -525,7 +531,7 @@ ego_sub<-ego[1:10,]
 
 
 ego_sub <- ego_sub %>%
-  arrange(p.adjust) %>%   # 按 p 值从小到大
+  arrange(p.adjust) %>%
   mutate(
     Description = factor(Description, levels = rev(Description))
   )
@@ -540,8 +546,8 @@ ggplot(ego_sub,
   geom_col(width = 0.7) +
   
   scale_fill_gradient(
-    low = "#2166AC",   # 蓝色（不显著）
-    high = "#B2182B"   # 红色（显著）
+    low = "#2166AC",
+    high = "#B2182B"
   ) +
   theme_classic() +
   theme(axis.text.y = element_text(color = "black",size = 12))+
